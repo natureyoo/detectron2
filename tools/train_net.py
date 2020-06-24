@@ -21,6 +21,7 @@ import os
 from collections import OrderedDict
 import torch
 
+from detectron2.data.datasets import register_coco_instances
 import detectron2.utils.comm as comm
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import get_cfg
@@ -122,13 +123,22 @@ def setup(args):
     """
     cfg = get_cfg()
     cfg.merge_from_file(args.config_file)
+    print(args.opts)
     cfg.merge_from_list(args.opts)
+
+    cfg.MODEL.ROI_HEADS.NUM_CLASSES = 13
+    cfg.SOLVER.MAX_ITER = 3000
+    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 128
+
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
 
 
 def main(args):
+    register_coco_instances("deepfashion2_train", {}, "/second/DeepFashion2/coco_format/instance_train.json", "/second/DeepFashion2/train/image")
+    register_coco_instances("deepfashion2_val", {}, "/second/DeepFashion2/coco_format/instance_val.json", "/second/DeepFashion2/val/image/")
+
     cfg = setup(args)
 
     if args.eval_only:
