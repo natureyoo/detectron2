@@ -73,17 +73,15 @@ def convert_PIL_to_numpy(image, format):
 
 def convert_image_to_rgb(image, format):
     """
-    Convert an image from given format to RGB.
+    Convert numpy image from given format to RGB.
 
     Args:
-        image (np.ndarray or Tensor): an HWC image
+        image (np.ndarray): a numpy image
         format (str): the format of input image, also see `read_image`
 
     Returns:
-        (np.ndarray): (H,W,3) RGB image in 0-255 range, can be either float or uint8
+        (np.ndarray): HWC RGB image in 0-255 range, can be either float or uint8
     """
-    if isinstance(image, torch.Tensor):
-        image = image.cpu().numpy()
     if format == "BGR":
         image = image[:, :, [2, 1, 0]]
     elif format == "YUV-BT.601":
@@ -104,7 +102,7 @@ def read_image(file_name, format=None):
 
     Args:
         file_name (str): image file path
-        format (str): one of the supported image modes in PIL, or "BGR" or "YUV-BT.601".
+        format (str): one of the supported image modes in PIL, or "BGR" or "YUV-BT.601"
 
     Returns:
         image (np.ndarray): an HWC image in the given format, which is 0-255, uint8 for
@@ -147,7 +145,7 @@ def check_image_size(dataset_dict, image):
         dataset_dict["height"] = image.shape[0]
 
 
-def transform_proposals(dataset_dict, image_shape, transforms, *, proposal_topk, min_box_size=0):
+def transform_proposals(dataset_dict, image_shape, transforms, min_box_side_len, proposal_topk):
     """
     Apply transformations to the proposals in dataset_dict, if any.
 
@@ -156,9 +154,8 @@ def transform_proposals(dataset_dict, image_shape, transforms, *, proposal_topk,
             contains fields "proposal_boxes", "proposal_objectness_logits", "proposal_bbox_mode"
         image_shape (tuple): height, width
         transforms (TransformList):
+        min_box_side_len (int): keep proposals with at least this size
         proposal_topk (int): only keep top-K scoring proposals
-        min_box_size (int): proposals with either side smaller than this
-            threshold are removed
 
     The input dict is modified in-place, with abovementioned keys removed. A new
     key "proposals" will be added. Its value is an `Instances`
@@ -180,7 +177,7 @@ def transform_proposals(dataset_dict, image_shape, transforms, *, proposal_topk,
         )
 
         boxes.clip(image_shape)
-        keep = boxes.nonempty(threshold=min_box_size)
+        keep = boxes.nonempty(threshold=min_box_side_len)
         boxes = boxes[keep]
         objectness_logits = objectness_logits[keep]
 
@@ -214,11 +211,9 @@ def transform_instance_annotations(
             transformed according to `transforms`.
             The "bbox_mode" field will be set to XYXY_ABS.
     """
-    # bbox is 1d (per-instance bounding box)
     bbox = BoxMode.convert(annotation["bbox"], annotation["bbox_mode"], BoxMode.XYXY_ABS)
-    # clip transformed bbox to image size
-    bbox = transforms.apply_box([bbox])[0].clip(min=0)
-    annotation["bbox"] = np.minimum(bbox, list(image_size + image_size)[::-1])
+    # Note that bbox is 1d (per-instance bounding box)
+    annotation["bbox"] = transforms.apply_box([bbox])[0]
     annotation["bbox_mode"] = BoxMode.XYXY_ABS
 
     if "segmentation" in annotation:
@@ -255,26 +250,16 @@ def transform_instance_annotations(
 def transform_keypoint_annotations(keypoints, transforms, image_size, keypoint_hflip_indices=None):
     """
     Transform keypoint annotations of an image.
-    If a keypoint is transformed out of image boundary, it will be marked "unlabeled" (visibility=0)
 
     Args:
-        keypoints (list[float]): Nx3 float in Detectron2's Dataset format.
-            Each point is represented by (x, y, visibility).
+        keypoints (list[float]): Nx3 float in Detectron2 Dataset format.
         transforms (TransformList):
         image_size (tuple): the height, width of the transformed image
         keypoint_hflip_indices (ndarray[int]): see `create_keypoint_hflip_indices`.
-            When `transforms` includes horizontal flip, will use the index
-            mapping to flip keypoints.
     """
     # (N*3,) -> (N, 3)
     keypoints = np.asarray(keypoints, dtype="float64").reshape(-1, 3)
-    keypoints_xy = transforms.apply_coords(keypoints[:, :2])
-
-    # Set all out-of-boundary points to "unlabeled"
-    inside = (keypoints_xy >= np.array([0, 0])) & (keypoints_xy <= np.array(image_size[::-1]))
-    inside = inside.all(axis=1)
-    keypoints[:, :2] = keypoints_xy
-    keypoints[:, 2][~inside] = 0
+    keypoints[:, :2] = transforms.apply_coords(keypoints[:, :2])
 
     # This assumes that HorizFlipTransform is the only one that does flip
     do_hflip = sum(isinstance(t, T.HFlipTransform) for t in transforms.transforms) % 2 == 1
@@ -289,7 +274,9 @@ def transform_keypoint_annotations(keypoints, transforms, image_size, keypoint_h
         assert keypoint_hflip_indices is not None
         keypoints = keypoints[keypoint_hflip_indices, :]
 
-    # Maintain COCO convention that if visibility == 0 (unlabeled), then x, y = 0
+    # Maintain COCO convention that if visibility == 0, then x, y = 0
+    # TODO may need to reset visibility for cropped keypoints,
+    # but it does not matter for our existing algorithms
     keypoints[keypoints[:, 2] == 0] = 0
     return keypoints
 
@@ -312,7 +299,8 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
     """
     boxes = [BoxMode.convert(obj["bbox"], obj["bbox_mode"], BoxMode.XYXY_ABS) for obj in annos]
     target = Instances(image_size)
-    target.gt_boxes = Boxes(boxes)
+    boxes = target.gt_boxes = Boxes(boxes)
+    boxes.clip(image_size)
 
     classes = [obj["category_id"] for obj in annos]
     classes = torch.tensor(classes, dtype=torch.int64)
@@ -321,7 +309,6 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
     if len(annos) and "segmentation" in annos[0]:
         segms = [obj["segmentation"] for obj in annos]
         if mask_format == "polygon":
-            # TODO check type and provide better error
             masks = PolygonMasks(segms)
         else:
             assert mask_format == "bitmask", mask_format

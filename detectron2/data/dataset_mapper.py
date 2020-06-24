@@ -3,6 +3,8 @@ import copy
 import logging
 import numpy as np
 import torch
+from fvcore.common.file_io import PathManager
+from PIL import Image
 
 from . import detection_utils as utils
 from . import transforms as T
@@ -54,7 +56,7 @@ class DatasetMapper:
             self.keypoint_hflip_indices = None
 
         if self.load_proposals:
-            self.proposal_min_box_size = cfg.MODEL.PROPOSAL_GENERATOR.MIN_SIZE
+            self.min_box_side_len = cfg.MODEL.PROPOSAL_GENERATOR.MIN_SIZE
             self.proposal_topk = (
                 cfg.DATASETS.PRECOMPUTED_PROPOSAL_TOPK_TRAIN
                 if is_train
@@ -75,7 +77,7 @@ class DatasetMapper:
         image = utils.read_image(dataset_dict["file_name"], format=self.img_format)
         utils.check_image_size(dataset_dict, image)
 
-        if not dataset_dict.get("annotations", []):
+        if "annotations" not in dataset_dict:
             image, transforms = T.apply_transform_gens(
                 ([self.crop_gen] if self.crop_gen else []) + self.tfm_gens, image
             )
@@ -101,14 +103,9 @@ class DatasetMapper:
         dataset_dict["image"] = torch.as_tensor(np.ascontiguousarray(image.transpose(2, 0, 1)))
 
         # USER: Remove if you don't use pre-computed proposals.
-        # Most users would not need this feature.
         if self.load_proposals:
             utils.transform_proposals(
-                dataset_dict,
-                image_shape,
-                transforms,
-                proposal_topk=self.proposal_topk,
-                min_box_size=self.proposal_min_box_size,
+                dataset_dict, image_shape, transforms, self.min_box_side_len, self.proposal_topk
             )
 
         if not self.is_train:
@@ -136,19 +133,16 @@ class DatasetMapper:
             instances = utils.annotations_to_instances(
                 annos, image_shape, mask_format=self.mask_format
             )
-
-            # After transforms such as cropping are applied, the bounding box may no longer
-            # tightly bound the object. As an example, imagine a triangle object
-            # [(0,0), (2,0), (0,2)] cropped by a box [(1,0),(2,2)] (XYXY format). The tight
-            # bounding box of the cropped triangle should be [(1,0),(2,1)], which is not equal to
-            # the intersection of original bounding box and the cropping box.
+            # Create a tight bounding box from masks, useful when image is cropped
             if self.crop_gen and instances.has("gt_masks"):
                 instances.gt_boxes = instances.gt_masks.get_bounding_boxes()
             dataset_dict["instances"] = utils.filter_empty_instances(instances)
 
         # USER: Remove if you don't do semantic/panoptic segmentation.
         if "sem_seg_file_name" in dataset_dict:
-            sem_seg_gt = utils.read_image(dataset_dict.pop("sem_seg_file_name"), "L").squeeze(2)
+            with PathManager.open(dataset_dict.pop("sem_seg_file_name"), "rb") as f:
+                sem_seg_gt = Image.open(f)
+                sem_seg_gt = np.asarray(sem_seg_gt, dtype="uint8")
             sem_seg_gt = transforms.apply_segmentation(sem_seg_gt)
             sem_seg_gt = torch.as_tensor(sem_seg_gt.astype("long"))
             dataset_dict["sem_seg"] = sem_seg_gt

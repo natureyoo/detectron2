@@ -11,6 +11,7 @@ from detectron2.utils.memory import retry_if_cuda_oom
 from ..box_regression import Box2BoxTransformRotated
 from .build import PROPOSAL_GENERATOR_REGISTRY
 from .rpn import RPN
+from .rpn_outputs import RPNOutputs
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +19,11 @@ logger = logging.getLogger(__name__)
 def find_top_rrpn_proposals(
     proposals,
     pred_objectness_logits,
-    image_sizes,
+    images,
     nms_thresh,
     pre_nms_topk,
     post_nms_topk,
-    min_box_size,
+    min_box_side_len,
     training,
 ):
     """
@@ -36,7 +37,7 @@ def find_top_rrpn_proposals(
         proposals (list[Tensor]): A list of L tensors. Tensor i has shape (N, Hi*Wi*A, 5).
             All proposal predictions on the feature maps.
         pred_objectness_logits (list[Tensor]): A list of L tensors. Tensor i has shape (N, Hi*Wi*A).
-        image_sizes (list[tuple]): sizes (h, w) for each image
+        images (ImageList): Input images as an :class:`ImageList`.
         nms_thresh (float): IoU threshold to use for NMS
         pre_nms_topk (int): number of top k scoring proposals to keep before applying NMS.
             When RRPN is run on multiple feature maps (as in FPN) this number is per
@@ -44,8 +45,8 @@ def find_top_rrpn_proposals(
         post_nms_topk (int): number of top k scoring proposals to keep after applying NMS.
             When RRPN is run on multiple feature maps (as in FPN) this number is total,
             over all feature maps.
-        min_box_size(float): minimum proposal box side length in pixels (absolute units wrt
-            input images).
+        min_box_side_len (float): minimum proposal box side length in pixels (absolute units
+            wrt input images).
         training (bool): True if proposals are to be used in training, otherwise False.
             This arg exists only to support a legacy bug; look for the "NB: Legacy bug ..."
             comment.
@@ -54,6 +55,7 @@ def find_top_rrpn_proposals(
         proposals (list[Instances]): list of N Instances. The i-th Instances
             stores post_nms_topk object proposals for image i.
     """
+    image_sizes = images.image_sizes  # in (h, w) order
     num_images = len(image_sizes)
     device = proposals[0].device
 
@@ -98,7 +100,7 @@ def find_top_rrpn_proposals(
         boxes.clip(image_size)
 
         # filter empty boxes
-        keep = boxes.nonempty(threshold=min_box_size)
+        keep = boxes.nonempty(threshold=min_box_side_len)
         lvl = level_ids
         if keep.sum().item() != len(boxes):
             boxes, scores_per_img, lvl = (boxes[keep], scores_per_img[keep], level_ids[keep])
@@ -127,11 +129,11 @@ class RRPN(RPN):
     """
 
     def __init__(self, cfg, input_shape: Dict[str, ShapeSpec]):
-        box2box_transform = Box2BoxTransformRotated(weights=cfg.MODEL.RPN.BBOX_REG_WEIGHTS)
-        super().__init__(cfg, input_shape, box2box_transform=box2box_transform)
-        if self.anchor_boundary_thresh >= 0:
+        super().__init__(cfg, input_shape)
+        self.box2box_transform = Box2BoxTransformRotated(weights=cfg.MODEL.RPN.BBOX_REG_WEIGHTS)
+        if self.boundary_threshold >= 0:
             raise NotImplementedError(
-                "anchor_boundary_thresh is a legacy option not implemented for RRPN."
+                "boundary_threshold is a legacy option not implemented for RRPN."
             )
 
     @torch.no_grad()
@@ -181,16 +183,51 @@ class RRPN(RPN):
             matched_gt_boxes.append(matched_gt_boxes_i)
         return gt_labels, matched_gt_boxes
 
-    @torch.no_grad()
-    def predict_proposals(self, anchors, pred_objectness_logits, pred_anchor_deltas, image_sizes):
-        pred_proposals = self._decode_proposals(anchors, pred_anchor_deltas)
-        return find_top_rrpn_proposals(
-            pred_proposals,
+    def forward(self, images, features, gt_instances=None):
+        # same signature as RPN.forward
+        features = [features[f] for f in self.in_features]
+        pred_objectness_logits, pred_anchor_deltas = self.rpn_head(features)
+        anchors = self.anchor_generator(features)
+
+        if self.training:
+            gt_labels, gt_boxes = self.label_and_sample_anchors(anchors, gt_instances)
+        else:
+            gt_labels, gt_boxes = None, None
+
+        outputs = RPNOutputs(
+            self.box2box_transform,
+            self.batch_size_per_image,
+            images,
             pred_objectness_logits,
-            image_sizes,
-            self.nms_thresh,
-            self.pre_nms_topk[self.training],
-            self.post_nms_topk[self.training],
-            self.min_box_size,
-            self.training,
+            pred_anchor_deltas,
+            anchors,
+            gt_labels,
+            gt_boxes,
+            self.smooth_l1_beta,
         )
+
+        if self.training:
+            losses = {k: v * self.loss_weight for k, v in outputs.losses().items()}
+        else:
+            losses = {}
+
+        with torch.no_grad():
+            # Find the top proposals by applying NMS and removing boxes that
+            # are too small. The proposals are treated as fixed for approximate
+            # joint training with roi heads. This approach ignores the derivative
+            # w.r.t. the proposal boxes’ coordinates that are also network
+            # responses, so is approximate.
+
+            # Note: this line is the only difference v.s. RPN.forward
+            proposals = find_top_rrpn_proposals(
+                outputs.predict_proposals(),
+                outputs.predict_objectness_logits(),
+                images,
+                self.nms_thresh,
+                self.pre_nms_topk[self.training],
+                self.post_nms_topk[self.training],
+                self.min_box_side_len,
+                self.training,
+            )
+
+        return proposals, losses

@@ -5,13 +5,7 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from fvcore.transforms.transform import (
-    CropTransform,
-    HFlipTransform,
-    NoOpTransform,
-    Transform,
-    TransformList,
-)
+from fvcore.transforms.transform import HFlipTransform, NoOpTransform, Transform
 from PIL import Image
 
 try:
@@ -152,7 +146,7 @@ class RotationTransform(Transform):
             center = image_center
         if interp is None:
             interp = cv2.INTER_LINEAR
-        abs_cos, abs_sin = (abs(np.cos(np.deg2rad(angle))), abs(np.sin(np.deg2rad(angle))))
+        abs_cos, abs_sin = abs(np.cos(np.deg2rad(angle))), abs(np.sin(np.deg2rad(angle)))
         if expand:
             # find the new width and height bounds
             bound_w, bound_h = np.rint(
@@ -201,20 +195,6 @@ class RotationTransform(Transform):
             rm[:, 2] += new_center
         return rm
 
-    def inverse(self):
-        """
-        The inverse is to rotate it back with expand, and crop to get the original shape.
-        """
-        if not self.expand:  # Not possible to inverse if a part of the image is lost
-            raise NotImplementedError()
-        rotation = RotationTransform(
-            self.bound_h, self.bound_w, -self.angle, True, None, self.interp
-        )
-        crop = CropTransform(
-            (rotation.bound_w - self.w) // 2, (rotation.bound_h - self.h) // 2, self.w, self.h
-        )
-        return TransformList([rotation, crop])
-
 
 def HFlip_rotated_box(transform, rotated_boxes):
     """
@@ -257,7 +237,5 @@ def Resize_rotated_box(transform, rotated_boxes):
 
 
 HFlipTransform.register_type("rotated_box", HFlip_rotated_box)
-ResizeTransform.register_type("rotated_box", Resize_rotated_box)
-
-# not necessary any more with latest fvcore
 NoOpTransform.register_type("rotated_box", lambda t, x: x)
+ResizeTransform.register_type("rotated_box", Resize_rotated_box)

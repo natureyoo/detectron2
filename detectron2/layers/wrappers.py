@@ -9,14 +9,13 @@ is implemented
 """
 
 import math
-from typing import List
 import torch
 from torch.nn.modules.utils import _ntuple
 
-from detectron2.utils.env import TORCH_VERSION
+TORCH_VERSION = tuple(int(x) for x in torch.__version__.split(".")[:2])
 
 
-def cat(tensors: List[torch.Tensor], dim: int = 0):
+def cat(tensors, dim=0):
     """
     Efficient version of torch.cat that avoids a copy if there is only a single element in a list
     """
@@ -214,13 +213,3 @@ def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corne
     output_shape = tuple(_output_size(2))
     output_shape = input.shape[:-2] + output_shape
     return _NewEmptyTensorOp.apply(input, output_shape)
-
-
-def nonzero_tuple(x):
-    """
-    A 'as_tuple=True' version of torch.nonzero to support torchscript.
-    because of https://github.com/pytorch/pytorch/issues/38718
-    """
-    if x.dim() == 0:
-        return x.unsqueeze(0).nonzero().unbind(1)
-    return x.nonzero().unbind(1)

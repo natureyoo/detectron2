@@ -29,6 +29,12 @@ __all__ = [
 ]
 
 
+ResNetBlockBase = CNNBlockBase
+"""
+Alias for backward compatibiltiy.
+"""
+
+
 class BasicBlock(CNNBlockBase):
     """
     The basic residual block for ResNet-18 and ResNet-34 defined in :paper:`ResNet`,
@@ -210,7 +216,7 @@ class BottleneckBlock(CNNBlockBase):
         return out
 
 
-class DeformBottleneckBlock(CNNBlockBase):
+class DeformBottleneckBlock(ResNetBlockBase):
     """
     Similar to :class:`BottleneckBlock`, but with :paper:`deformable conv <deformconv>`
     in the 3x3 convolution.
@@ -327,6 +333,36 @@ class DeformBottleneckBlock(CNNBlockBase):
         return out
 
 
+def make_stage(block_class, num_blocks, first_stride, *, in_channels, out_channels, **kwargs):
+    """
+    Create a list of blocks just like those in a ResNet stage.
+
+    Args:
+        block_class (type): a subclass of ResNetBlockBase
+        num_blocks (int):
+        first_stride (int): the stride of the first block. The other blocks will have stride=1.
+        in_channels (int): input channels of the entire stage.
+        out_channels (int): output channels of **every block** in the stage.
+        kwargs: other arguments passed to the constructor of every block.
+
+    Returns:
+        list[nn.Module]: a list of block module.
+    """
+    assert "stride" not in kwargs, "Stride of blocks in make_stage cannot be changed."
+    blocks = []
+    for i in range(num_blocks):
+        blocks.append(
+            block_class(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                stride=first_stride if i == 0 else 1,
+                **kwargs,
+            )
+        )
+        in_channels = out_channels
+    return blocks
+
+
 class BasicStem(CNNBlockBase):
     """
     The standard ResNet stem (layers before the first residual block).
@@ -375,7 +411,7 @@ class ResNet(Backbone):
                 be returned in forward. Can be anything in "stem", "linear", or "res2" ...
                 If None, will return the output of the last layer.
         """
-        super().__init__()
+        super(ResNet, self).__init__()
         self.stem = stem
         self.num_classes = num_classes
 
@@ -467,54 +503,6 @@ class ResNet(Backbone):
                     block.freeze()
         return self
 
-    @staticmethod
-    def make_stage(block_class, num_blocks, first_stride, *, in_channels, out_channels, **kwargs):
-        """
-        Create a list of blocks of the same type that forms one ResNet stage.
-        Layers that produce the same feature map spatial size are defined as one
-        "stage" by :paper:`FPN`.
-
-        Args:
-            block_class (type): a subclass of CNNBlockBase that's used to create all blocks in this
-                stage. A module of this type must not change spatial resolution of inputs unless its
-                stride != 1.
-            num_blocks (int): number of blocks in this stage
-            first_stride (int): the stride of the first block. The other blocks will have stride=1.
-                Therefore this is also the stride of the entire stage.
-            in_channels (int): input channels of the entire stage.
-            out_channels (int): output channels of **every block** in the stage.
-            kwargs: other arguments passed to the constructor of `block_class`.
-
-        Returns:
-            list[nn.Module]: a list of block module.
-        """
-        assert "stride" not in kwargs, "Stride of blocks in make_stage cannot be changed."
-        blocks = []
-        for i in range(num_blocks):
-            blocks.append(
-                block_class(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    stride=first_stride if i == 0 else 1,
-                    **kwargs,
-                )
-            )
-            in_channels = out_channels
-        return blocks
-
-
-ResNetBlockBase = CNNBlockBase
-"""
-Alias for backward compatibiltiy.
-"""
-
-
-def make_stage(*args, **kwargs):
-    """
-    Deprecated alias for backward compatibiltiy.
-    """
-    return ResNet.make_stage(*args, **kwargs)
-
 
 @BACKBONE_REGISTRY.register()
 def build_resnet_backbone(cfg, input_shape):
@@ -595,7 +583,7 @@ def build_resnet_backbone(cfg, input_shape):
                 stage_kargs["deform_num_groups"] = deform_num_groups
             else:
                 stage_kargs["block_class"] = BottleneckBlock
-        blocks = ResNet.make_stage(**stage_kargs)
+        blocks = make_stage(**stage_kargs)
         in_channels = out_channels
         out_channels *= 2
         bottleneck_channels *= 2

@@ -94,7 +94,9 @@ def set_global_cfg(cfg: CfgNode) -> None:
 
     Assume that the given "cfg" has the key "KEY", after calling
     `set_global_cfg(cfg)`, the key can be accessed by:
-    ::
+
+    .. code-block:: python
+
         from detectron2.config import global_cfg
         print(global_cfg.KEY)
 
@@ -113,7 +115,9 @@ def configurable(init_func):
     object using the class's from_config classmethod.
 
     Examples:
-    ::
+
+    .. code-block:: python
+
         class A:
             @configurable
             def __init__(self, a, b=2, c=3):

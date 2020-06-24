@@ -185,11 +185,10 @@ Category ids in annotations are not in [1, #categories]! We'll apply a mapping f
 
     if num_instances_without_valid_segmentation > 0:
         logger.warning(
-            "Filtered out {} instances without valid segmentation. ".format(
+            "Filtered out {} instances without valid segmentation. "
+            "There might be issues in your dataset generation process.".format(
                 num_instances_without_valid_segmentation
             )
-            + "There might be issues in your dataset generation process. "
-            "A valid polygon should be a list[float] with even length >= 6."
         )
     return dataset_dicts
 
@@ -375,11 +374,11 @@ def convert_to_coco_dict(dataset_name):
                 coco_annotation["num_keypoints"] = num_keypoints
 
             if "segmentation" in annotation:
-                seg = coco_annotation["segmentation"] = annotation["segmentation"]
-                if isinstance(seg, dict):  # RLE
-                    counts = seg["counts"]
-                    if not isinstance(counts, str):
-                        seg["counts"] = counts.decode("ascii")
+                coco_annotation["segmentation"] = annotation["segmentation"]
+                if isinstance(coco_annotation["segmentation"], dict):  # RLE
+                    coco_annotation["segmentation"]["counts"] = coco_annotation["segmentation"][
+                        "counts"
+                    ].decode("ascii")
 
             coco_annotations.append(coco_annotation)
 

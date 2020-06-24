@@ -28,7 +28,7 @@ _C.MODEL.KEYPOINT_ON = False
 _C.MODEL.DEVICE = "cuda"
 _C.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
 
-# Path (a file path, or URL like detectron2://.., https://..) to a checkpoint file
+# Path (possibly with schema like catalog:// or detectron2://) to a checkpoint file
 # to be loaded to the model. You can find available models in the model zoo.
 _C.MODEL.WEIGHTS = ""
 
@@ -65,8 +65,6 @@ _C.INPUT.CROP = CN({"ENABLED": False})
 # - "relative_range" uniformly sample relative crop size from between [CROP.SIZE[0], [CROP.SIZE[1]].
 #   and  [1, 1] and use it as in "relative" scenario.
 # - "absolute" crop part of an input with absolute size: (CROP.SIZE[0], CROP.SIZE[1]).
-# - "absolute_range", for an input of size (H, W), uniformly sample H_crop in
-#   [CROP.SIZE[0], min(H, CROP.SIZE[1])] and W_crop in [CROP.SIZE[0], min(W, CROP.SIZE[1])]
 _C.INPUT.CROP.TYPE = "relative_range"
 # Size of crop in range (0, 1] if CROP.TYPE is "relative" or "relative_range" and in number of
 # pixels if CROP.TYPE is "absolute"
@@ -230,7 +228,7 @@ _C.MODEL.RPN.PRE_NMS_TOPK_TEST = 6000
 # of proposals from all levels
 # NOTE: When FPN is used, the meaning of this config is different from Detectron1.
 # It means per-batch topk in Detectron1, but per-image topk here.
-# See the "find_top_rpn_proposals" function for details.
+# See "modeling/rpn/rpn_outputs.py" for details.
 _C.MODEL.RPN.POST_NMS_TOPK_TRAIN = 2000
 _C.MODEL.RPN.POST_NMS_TOPK_TEST = 1000
 # NMS threshold used on RPN proposals
@@ -282,11 +280,6 @@ _C.MODEL.ROI_BOX_HEAD = CN()
 # C4 don't use head name option
 # Options for non-C4 models: FastRCNNConvFCHead,
 _C.MODEL.ROI_BOX_HEAD.NAME = ""
-# Options are: "smooth_l1", "giou"
-_C.MODEL.ROI_BOX_HEAD.BBOX_REG_LOSS_TYPE = "smooth_l1"
-# The final scaling coefficient on the box regression loss, used to balance the magnitude of its
-# gradients with other losses in the model. See also `MODEL.ROI_KEYPOINT_HEAD.LOSS_WEIGHT`.
-_C.MODEL.ROI_BOX_HEAD.BBOX_REG_LOSS_WEIGHT = 1.0
 # Default weights on (dx, dy, dw, dh) for normalizing bbox regression targets
 # These are empirically chosen to approximately lead to unit variance targets
 _C.MODEL.ROI_BOX_HEAD.BBOX_REG_WEIGHTS = (10.0, 10.0, 5.0, 5.0)
@@ -525,15 +518,7 @@ _C.SOLVER.CHECKPOINT_PERIOD = 5000
 # Number of images per batch across all machines.
 # If we have 16 GPUs and IMS_PER_BATCH = 32,
 # each GPU will see 2 images per batch.
-# May be adjusted automatically if REFERENCE_WORLD_SIZE is set.
 _C.SOLVER.IMS_PER_BATCH = 16
-
-# The reference number of workers (GPUs) this config is meant to train with.
-# With a non-zero value, it will be used by DefaultTrainer to compute a desired
-# per-worker batch size, and then scale the other related configs (total batch size,
-# learning rate, etc) to match the per-worker batch size if the actual number
-# of workers during training is different from this reference.
-_C.SOLVER.REFERENCE_WORLD_SIZE = 0
 
 # Detectron v1 (and previous detection code) used a 2x higher LR and 0 WD for
 # biases. This is not useful (at least for recent models). You should avoid

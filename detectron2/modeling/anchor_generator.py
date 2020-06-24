@@ -211,7 +211,7 @@ class DefaultAnchorGenerator(nn.Module):
                 anchors.append([x0, y0, x1, y1])
         return torch.tensor(anchors)
 
-    def forward(self, features: List[torch.Tensor]):
+    def forward(self, features):
         """
         Args:
             features (list[Tensor]): list of backbone feature maps on which to generate anchors.

@@ -101,8 +101,8 @@ class BitMasks:
         self.image_size = tensor.shape[1:]
         self.tensor = tensor
 
-    def to(self, *args: Any, **kwargs: Any) -> "BitMasks":
-        return BitMasks(self.tensor.to(*args, **kwargs))
+    def to(self, device: str) -> "BitMasks":
+        return BitMasks(self.tensor.to(device))
 
     @property
     def device(self) -> torch.device:
