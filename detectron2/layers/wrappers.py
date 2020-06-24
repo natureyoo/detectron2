@@ -213,3 +213,6 @@ def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corne
     output_shape = tuple(_output_size(2))
     output_shape = input.shape[:-2] + output_shape
     return _NewEmptyTensorOp.apply(input, output_shape)
+
+
+AvgPool2d = torch.nn.AvgPool2d

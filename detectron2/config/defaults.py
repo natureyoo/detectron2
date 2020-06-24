@@ -25,6 +25,7 @@ _C.MODEL = CN()
 _C.MODEL.LOAD_PROPOSALS = False
 _C.MODEL.MASK_ON = False
 _C.MODEL.KEYPOINT_ON = False
+_C.MODEL.SIM_ON = False
 _C.MODEL.DEVICE = "cuda"
 _C.MODEL.META_ARCHITECTURE = "GeneralizedRCNN"
 
@@ -110,9 +111,10 @@ _C.DATALOADER.NUM_WORKERS = 4
 # If True, each batch should contain only images for which the aspect ratio
 # is compatible. This groups portrait images together, and landscape images
 # are not batched with portrait images.
-_C.DATALOADER.ASPECT_RATIO_GROUPING = True
+_C.DATALOADER.ASPECT_RATIO_GROUPING = False
+_C.DATALOADER.TRIPLET_GROUPING = True
 # Options: TrainingSampler, RepeatFactorTrainingSampler
-_C.DATALOADER.SAMPLER_TRAIN = "TrainingSampler"
+_C.DATALOADER.SAMPLER_TRAIN = "PairTrainingSampler"            # "TrainingSampler"
 # Repeat threshold for RepeatFactorTrainingSampler
 _C.DATALOADER.REPEAT_THRESHOLD = 0.0
 # if True, the dataloader will filter out images that have no associated
@@ -229,7 +231,7 @@ _C.MODEL.RPN.PRE_NMS_TOPK_TEST = 6000
 # NOTE: When FPN is used, the meaning of this config is different from Detectron1.
 # It means per-batch topk in Detectron1, but per-image topk here.
 # See "modeling/rpn/rpn_outputs.py" for details.
-_C.MODEL.RPN.POST_NMS_TOPK_TRAIN = 2000
+_C.MODEL.RPN.POST_NMS_TOPK_TRAIN = 2000     # NMS 적용하고 나서 top 2000개
 _C.MODEL.RPN.POST_NMS_TOPK_TEST = 1000
 # NMS threshold used on RPN proposals
 _C.MODEL.RPN.NMS_THRESH = 0.7
@@ -333,6 +335,33 @@ _C.MODEL.ROI_MASK_HEAD.NORM = ""
 _C.MODEL.ROI_MASK_HEAD.CLS_AGNOSTIC_MASK = False
 # Type of pooling operation applied to the incoming feature map for each RoI
 _C.MODEL.ROI_MASK_HEAD.POOLER_TYPE = "ROIAlignV2"
+
+
+# ---------------------------------------------------------------------------- #
+# Sim Head
+# ---------------------------------------------------------------------------- #
+_C.MODEL.SIM_NET = CN()
+_C.MODEL.SIM_NET.NAME = "SimNet"
+_C.MODEL.SIM_NET.IN_FEATURES = ["res4"]
+_C.MODEL.SIM_NET.BATCH_SIZE_PER_IMAGE = 64
+_C.MODEL.SIM_NET.IOU_THRESHOLDS = [0.7]
+_C.MODEL.SIM_NET.IOU_LABELS = [0, 1]
+_C.MODEL.SIM_NET.POOLER_RESOLUTION = 14
+_C.MODEL.SIM_NET.POOLER_SAMPLING_RATIO = 0
+_C.MODEL.SIM_NET.NUM_CONV = 0  # The number of convs in the mask head
+_C.MODEL.SIM_NET.CONV_DIM = 256
+_C.MODEL.SIM_NET.NUM_FC = 0
+# Hidden layer dimension for FC layers in the RoI box head
+_C.MODEL.SIM_NET.FC_DIM = 1024
+_C.MODEL.SIM_NET.LAST_DIM = 256
+# Normalization method for the convolution layers.
+# Options: "" (no norm), "GN", "SyncBN".
+_C.MODEL.SIM_NET.NORM = ""
+# Type of pooling operation applied to the incoming feature map for each RoI
+_C.MODEL.SIM_NET.POOLER_TYPE = "ROIAlignV2"
+_C.MODEL.SIM_NET.PROPOSAL_APPEND_GT = True
+# Hinge Loss Margin
+_C.MODEL.SIM_NET.MARGIN = 1.0
 
 
 # ---------------------------------------------------------------------------- #
@@ -513,7 +542,7 @@ _C.SOLVER.WARMUP_ITERS = 1000
 _C.SOLVER.WARMUP_METHOD = "linear"
 
 # Save a checkpoint after every this number of iterations
-_C.SOLVER.CHECKPOINT_PERIOD = 5000
+_C.SOLVER.CHECKPOINT_PERIOD = 1000
 
 # Number of images per batch across all machines.
 # If we have 16 GPUs and IMS_PER_BATCH = 32,

@@ -152,7 +152,6 @@ def configurable(init_func):
             init_func(self, **explicit_args)
         else:
             init_func(self, *args, **kwargs)
-
     return wrapped
 
 

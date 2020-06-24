@@ -198,8 +198,8 @@ class RPN(nn.Module):
             gt_boxes_i: ground-truth boxes for i-th image
             """
 
-            match_quality_matrix = retry_if_cuda_oom(pairwise_iou)(gt_boxes_i, anchors)
-            matched_idxs, gt_labels_i = retry_if_cuda_oom(self.anchor_matcher)(match_quality_matrix)
+            match_quality_matrix = retry_if_cuda_oom(pairwise_iou)(gt_boxes_i, anchors) # anchor 개수의 iou's list가 gt_box 개수만큼
+            matched_idxs, gt_labels_i = retry_if_cuda_oom(self.anchor_matcher)(match_quality_matrix) # 어느 gt_box와 iou값 가장 큰지, 즉 어느 gt_box가리키는지, positive or negative
             # Matching is memory-expensive and may result in CPU tensors. But the result is small
             gt_labels_i = gt_labels_i.to(device=gt_boxes_i.device)
             del match_quality_matrix
@@ -211,7 +211,7 @@ class RPN(nn.Module):
                 gt_labels_i[~anchors_inside_image] = -1
 
             # A vector of labels (-1, 0, 1) for each anchor
-            gt_labels_i = self._subsample_labels(gt_labels_i)
+            gt_labels_i = self._subsample_labels(gt_labels_i)   # sample positive and negative anchors
 
             if len(gt_boxes_i) == 0:
                 # These values won't be used anyway since the anchor is labeled as background
@@ -244,7 +244,7 @@ class RPN(nn.Module):
         anchors = self.anchor_generator(features)
 
         if self.training:
-            gt_labels, gt_boxes = self.label_and_sample_anchors(anchors, gt_instances)
+            gt_labels, gt_boxes = self.label_and_sample_anchors(anchors, gt_instances)      # (-1, 0, 1) label, which gt_box
         else:
             gt_labels, gt_boxes = None, None
 

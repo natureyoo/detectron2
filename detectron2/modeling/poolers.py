@@ -189,7 +189,6 @@ class ROIPooler(nn.Module):
                 boxes aggregated over all N batch images and C is the number of channels in `x`.
         """
         num_level_assignments = len(self.level_poolers)
-
         assert isinstance(x, list) and isinstance(
             box_lists, list
         ), "Arguments to pooler must be lists"

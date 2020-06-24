@@ -82,15 +82,15 @@ class Matcher(object):
             )
             return default_matches, default_match_labels
 
-        assert torch.all(match_quality_matrix >= 0)
+        assert torch.all(match_quality_matrix >= 0)     # 모든 element가 0이상인지 확인, IOU는 0 이상이어야 하니까!
 
         # match_quality_matrix is M (gt) x N (predicted)
         # Max over gt elements (dim 0) to find best gt candidate for each prediction
-        matched_vals, matches = match_quality_matrix.max(dim=0)
+        matched_vals, matches = match_quality_matrix.max(dim=0)     # anchor마다 어느 bbox에 match하는지
 
         match_labels = matches.new_full(matches.size(), 1, dtype=torch.int8)
 
-        for (l, low, high) in zip(self.labels, self.thresholds[:-1], self.thresholds[1:]):
+        for (l, low, high) in zip(self.labels, self.thresholds[:-1], self.thresholds[1:]):  # label: [0, -1, 1], thresholds: [-inf, 0.3, 0.7, inf]
             low_high = (matched_vals >= low) & (matched_vals < high)
             match_labels[low_high] = l
 

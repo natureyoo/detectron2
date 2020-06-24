@@ -11,7 +11,7 @@ from detectron2.utils.logger import log_first_n
 from ..backbone import build_backbone
 from ..postprocessing import detector_postprocess
 from ..proposal_generator import build_proposal_generator
-from ..roi_heads import build_roi_heads
+from ..roi_heads import build_roi_heads, build_sim_net
 from .build import META_ARCH_REGISTRY
 
 __all__ = ["GeneralizedRCNN", "ProposalNetwork"]
@@ -29,9 +29,10 @@ class GeneralizedRCNN(nn.Module):
     def __init__(self, cfg):
         super().__init__()
 
-        self.backbone = build_backbone(cfg)
-        self.proposal_generator = build_proposal_generator(cfg, self.backbone.output_shape())
+        self.backbone = build_backbone(cfg)     # FPN
+        self.proposal_generator = build_proposal_generator(cfg, self.backbone.output_shape())       # RPN
         self.roi_heads = build_roi_heads(cfg, self.backbone.output_shape())
+        self.sim_net = build_sim_net(cfg, self.backbone.output_shape())
         self.vis_period = cfg.VIS_PERIOD
         self.input_format = cfg.INPUT.FORMAT
 
@@ -106,7 +107,6 @@ class GeneralizedRCNN(nn.Module):
         """
         if not self.training:
             return self.inference(batched_inputs)
-
         images = self.preprocess_image(batched_inputs)
         if "instances" in batched_inputs[0]:
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
@@ -119,15 +119,15 @@ class GeneralizedRCNN(nn.Module):
             gt_instances = None
 
         features = self.backbone(images.tensor)
-
         if self.proposal_generator:
-            proposals, proposal_losses = self.proposal_generator(images, features, gt_instances)
+            proposals, proposal_losses = self.proposal_generator(images, features, gt_instances) # 생성된 anchor들 중,
         else:
             assert "proposals" in batched_inputs[0]
             proposals = [x["proposals"].to(self.device) for x in batched_inputs]
             proposal_losses = {}
-
         _, detector_losses = self.roi_heads(images, features, proposals, gt_instances)
+        similarity_losses = self.sim_net(images, features, proposals, gt_instances)
+
         if self.vis_period > 0:
             storage = get_event_storage()
             if storage.iter % self.vis_period == 0:
@@ -136,6 +136,8 @@ class GeneralizedRCNN(nn.Module):
         losses = {}
         losses.update(detector_losses)
         losses.update(proposal_losses)
+        losses.update(similarity_losses)
+
         return losses
 
     def inference(self, batched_inputs, detected_instances=None, do_postprocess=True):

@@ -250,6 +250,7 @@ def get_detection_dataset_dicts(
             print_instances_class_histogram(dataset_dicts, class_names)
         except AttributeError:  # class names are not available for this dataset
             pass
+
     return dataset_dicts
 
 
@@ -301,18 +302,32 @@ def build_detection_train_loader(cfg, mapper=None):
     if mapper is None:
         mapper = DatasetMapper(cfg, True)
     dataset = MapDataset(dataset, mapper)
-
     sampler_name = cfg.DATALOADER.SAMPLER_TRAIN
     logger = logging.getLogger(__name__)
     logger.info("Using training sampler {}".format(sampler_name))
     if sampler_name == "TrainingSampler":
         sampler = samplers.TrainingSampler(len(dataset))
+    elif sampler_name == "PairTrainingSampler":
+        sampler = samplers.PairTrainingSampler(dataset_dicts)
     elif sampler_name == "RepeatFactorTrainingSampler":
         sampler = samplers.RepeatFactorTrainingSampler(
             dataset_dicts, cfg.DATALOADER.REPEAT_THRESHOLD
         )
     else:
         raise ValueError("Unknown training sampler: {}".format(sampler_name))
+
+    if cfg.DATALOADER.TRIPLET_GROUPING:
+        batch_sampler = samplers.TripleBatchSampler(sampler, dataset, cate_num=cfg.MODEL.ROI_HEADS.NUM_CLASSES)
+        data_loader = torch.utils.data.DataLoader(
+            dataset,
+            sampler=None,
+            num_workers=cfg.DATALOADER.NUM_WORKERS,
+            batch_sampler=batch_sampler,
+            collate_fn=trivial_batch_collator,
+            worker_init_fn=worker_init_reset_seed,
+        )
+
+        return data_loader
 
     if cfg.DATALOADER.ASPECT_RATIO_GROUPING:
         data_loader = torch.utils.data.DataLoader(

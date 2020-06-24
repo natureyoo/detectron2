@@ -46,6 +46,7 @@ class DatasetMapper:
         self.img_format     = cfg.INPUT.FORMAT
         self.mask_on        = cfg.MODEL.MASK_ON
         self.mask_format    = cfg.INPUT.MASK_FORMAT
+        self.sim_on         = cfg.MODEL.SIM_ON
         self.keypoint_on    = cfg.MODEL.KEYPOINT_ON
         self.load_proposals = cfg.MODEL.LOAD_PROPOSALS
         # fmt: on
@@ -119,9 +120,11 @@ class DatasetMapper:
             for anno in dataset_dict["annotations"]:
                 if not self.mask_on:
                     anno.pop("segmentation", None)
+                if not self.sim_on:
+                    anno.pop("pair_id", None)
+                    anno.pop("style", None)
                 if not self.keypoint_on:
                     anno.pop("keypoints", None)
-
             # USER: Implement additional transformations if you have other types of data
             annos = [
                 utils.transform_instance_annotations(

@@ -117,7 +117,6 @@ def find_top_rpn_proposals(
     topk_scores = cat(topk_scores, dim=1)
     topk_proposals = cat(topk_proposals, dim=1)
     level_ids = cat(level_ids, dim=0)
-
     # 3. For each image, run a per-level NMS, and choose topk results.
     results = []
     for n, image_size in enumerate(image_sizes):
@@ -128,6 +127,8 @@ def find_top_rpn_proposals(
         valid_mask = torch.isfinite(boxes.tensor).all(dim=1) & torch.isfinite(scores_per_img)
         if not valid_mask.all():
             if training:
+                import pdb
+                pdb.set_trace()
                 raise FloatingPointError(
                     "Predicted boxes or scores contain Inf/NaN. Training has diverged."
                 )

@@ -224,7 +224,7 @@ class ROIHeads(torch.nn.Module):
         It performs box matching between `proposals` and `targets`, and assigns
         training labels to the proposals.
         It returns ``self.batch_size_per_image`` random samples from proposals and groundtruth
-        boxes, with a fraction of positives that is no larger than
+        boxes, with a fraction of positives that is no larger than     -> positive, negative 비율을 5:5 이런식으로 맞추는구나
         ``self.positive_sample_fraction``.
 
         Args:
@@ -256,16 +256,16 @@ class ROIHeads(torch.nn.Module):
         # points (under one tested configuration).
         if self.proposal_append_gt:
             proposals = add_ground_truth_to_proposals(gt_boxes, proposals)
-
+            # gt bbox를 proposal에 추가, RPN에서 내보내는 proposal은 1000개, 여기에 gt bbox 2개 추가하여 proposals 는 1002개 됨
         proposals_with_gt = []
 
         num_fg_samples = []
         num_bg_samples = []
-        for proposals_per_image, targets_per_image in zip(proposals, targets):
+        for proposals_per_image, targets_per_image in zip(proposals, targets): # targets[0] 은 한 이미지 내의 여러 object에 대함
             has_gt = len(targets_per_image) > 0
             match_quality_matrix = pairwise_iou(
                 targets_per_image.gt_boxes, proposals_per_image.proposal_boxes
-            )
+            )   # 실제 image에 N개의 obj있고, M개의 proposal있다면, matrix shape은 N*M
             matched_idxs, matched_labels = self.proposal_matcher(match_quality_matrix)
             sampled_idxs, gt_classes = self._sample_proposals(
                 matched_idxs, matched_labels, targets_per_image.gt_classes
@@ -284,7 +284,8 @@ class ROIHeads(torch.nn.Module):
                 # (by foreground/background, or number of keypoints in the image, etc)
                 # so we essentially index the data twice.
                 for (trg_name, trg_value) in targets_per_image.get_fields().items():
-                    if trg_name.startswith("gt_") and not proposals_per_image.has(trg_name):
+                    if (trg_name.startswith("gt_") or trg_name in ['pair_id', 'style'])\
+                            and not proposals_per_image.has(trg_name):
                         proposals_per_image.set(trg_name, trg_value[sampled_targets])
             else:
                 gt_boxes = Boxes(
@@ -358,6 +359,7 @@ class Res5ROIHeads(ROIHeads):
         pooler_scales     = (1.0 / input_shape[self.in_features[0]].stride, )
         sampling_ratio    = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
         self.mask_on      = cfg.MODEL.MASK_ON
+        self.sim_on       = cfg.MODEL.SIM_ON
         # fmt: on
         assert not cfg.MODEL.KEYPOINT_ON
         assert len(self.in_features) == 1
@@ -441,6 +443,8 @@ class Res5ROIHeads(ROIHeads):
                 mask_features = box_features[torch.cat(fg_selection_masks, dim=0)]
                 del box_features
                 losses.update(self.mask_head(mask_features, proposals))
+            # if self.sim_on:
+
             return [], losses
         else:
             pred_instances, _ = self.box_predictor.inference(predictions, proposals)
@@ -660,9 +664,8 @@ class StandardROIHeads(ROIHeads):
             assert targets
             proposals = self.label_and_sample_proposals(proposals, targets)
         del targets
-
         if self.training:
-            losses = self._forward_box(features, proposals)
+            losses = self._forward_box(features, proposals)     # proposal에 proposed bbox, object logit, gt_class, gt_bbox 있음
             # Usually the original proposals used by the box head are used by the mask, keypoint
             # heads. But when `self.train_on_pred_boxes is True`, proposals will contain boxes
             # predicted by the box head.

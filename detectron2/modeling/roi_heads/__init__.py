@@ -2,6 +2,7 @@
 from .box_head import ROI_BOX_HEAD_REGISTRY, build_box_head
 from .keypoint_head import ROI_KEYPOINT_HEAD_REGISTRY, build_keypoint_head, BaseKeypointRCNNHead
 from .mask_head import ROI_MASK_HEAD_REGISTRY, build_mask_head, BaseMaskRCNNHead
+from .sim_head import SIM_NET_REGISTRY, build_sim_net, SimHead, SimNet
 from .roi_heads import (
     ROI_HEADS_REGISTRY,
     ROIHeads,

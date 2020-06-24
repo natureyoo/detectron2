@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import Optional
 import torch
 from torch.utils.data.sampler import Sampler
+import numpy as np
 
 from detectron2.utils import comm
 
@@ -52,6 +53,27 @@ class TrainingSampler(Sampler):
                 yield from torch.randperm(self._size, generator=g)
             else:
                 yield from torch.arange(self._size)
+
+
+class PairTrainingSampler(TrainingSampler):
+    """
+    Yields pair Id
+    """
+
+    def __init__(self, dataset_dicts, shuffle=True, seed=None):
+        self.pair_ids = np.asarray(list(set([int(data['annotations'][0]['pair_id']) for idx, data in enumerate(dataset_dicts)])))
+        super().__init__(len(self.pair_ids), shuffle, seed)
+
+    def _infinite_indices(self):
+        # g = torch.Generator()
+        # g.manual_seed(self._seed)
+        while True:
+            if self._shuffle:
+                np.random.shuffle(self.pair_ids)
+            yield from self.pair_ids
+                # yield from self.pair_ids[torch.randperm(self._size, generator=g)]
+            # else:
+            #     yield from self.pair_ids[torch.arange(self._size)]
 
 
 class RepeatFactorTrainingSampler(Sampler):
