@@ -28,11 +28,12 @@ class GeneralizedRCNN(nn.Module):
 
     def __init__(self, cfg):
         super().__init__()
-
+        
+        self.sim_on = cfg.MODEL.SIM_ON
         self.backbone = build_backbone(cfg)     # FPN
         self.proposal_generator = build_proposal_generator(cfg, self.backbone.output_shape())       # RPN
         self.roi_heads = build_roi_heads(cfg, self.backbone.output_shape())
-        self.sim_net = build_sim_net(cfg, self.backbone.output_shape())
+        self.sim_net = build_sim_net(cfg, self.backbone.output_shape()) if self.sim_on else None
         self.vis_period = cfg.VIS_PERIOD
         self.input_format = cfg.INPUT.FORMAT
 
@@ -126,17 +127,18 @@ class GeneralizedRCNN(nn.Module):
             proposals = [x["proposals"].to(self.device) for x in batched_inputs]
             proposal_losses = {}
         _, detector_losses = self.roi_heads(images, features, proposals, gt_instances)
-        similarity_losses = self.sim_net(images, features, proposals, gt_instances)
+        if self.sim_on:
+            similarity_losses = self.sim_net(images, features, proposals, gt_instances)
 
         if self.vis_period > 0:
             storage = get_event_storage()
             if storage.iter % self.vis_period == 0:
-                self.visualize_training(batched_inputs, proposals)
-
+                selfs.visualize_training(batched_inputs, proposals)
         losses = {}
         losses.update(detector_losses)
         losses.update(proposal_losses)
-        losses.update(similarity_losses)
+        if self.sim_on:
+            losses.update(similarity_losses)
 
         return losses
 
@@ -168,16 +170,21 @@ class GeneralizedRCNN(nn.Module):
             else:
                 assert "proposals" in batched_inputs[0]
                 proposals = [x["proposals"].to(self.device) for x in batched_inputs]
-
             results, _ = self.roi_heads(images, features, proposals, None)
+            if self.sim_on:
+                results, sim_vecs = self.sim_net(images, features, results)
+            else:
+                sim_vecs = None
+            if results is None:
+                return None, None
         else:
             detected_instances = [x.to(self.device) for x in detected_instances]
             results = self.roi_heads.forward_with_given_boxes(features, detected_instances)
 
         if do_postprocess:
-            return GeneralizedRCNN._postprocess(results, batched_inputs, images.image_sizes)
+            return GeneralizedRCNN._postprocess(results, batched_inputs, images.image_sizes), sim_vecs
         else:
-            return results
+            return results, sim_vecs
 
     def preprocess_image(self, batched_inputs):
         """

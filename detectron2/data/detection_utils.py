@@ -306,13 +306,15 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
     classes = torch.tensor(classes, dtype=torch.int64)
     target.gt_classes = classes
 
-    pair_id = [obj["pair_id"] for obj in annos]
-    pair_id = torch.tensor(pair_id, dtype=torch.int64)
-    target.pair_id = pair_id
+    if "pair_id" in annos[0].keys():
+        pair_id = [obj["pair_id"] for obj in annos]
+        pair_id = torch.tensor(pair_id, dtype=torch.int64)
+        target.pair_id = pair_id
 
-    styles = [obj["style"] for obj in annos]
-    styles = torch.tensor(styles, dtype=torch.int64)
-    target.style = styles
+    if "style" in annos[0].keys():
+        styles = [obj["style"] for obj in annos]
+        styles = torch.tensor(styles, dtype=torch.int64)
+        target.style = styles
 
     if len(annos) and "segmentation" in annos[0]:
         segms = [obj["segmentation"] for obj in annos]

@@ -194,7 +194,7 @@ class SimpleTrainer(TrainerBase):
 
         self.model = model
         self.data_loader = data_loader
-        self._data_loader_iter = iter(data_loader)
+        self._data_loader_iter = iter(data_loader) if data_loader is not None else None
         self.optimizer = optimizer
 
     def run_step(self):

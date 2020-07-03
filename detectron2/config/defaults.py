@@ -21,6 +21,10 @@ _C = CN()
 # changes happen. It's recommended to keep a VERSION in your config file.
 _C.VERSION = 2
 
+_C.PHASE = CN()
+_C.PHASE.TRAIN = True
+_C.PHASE.TEST = True
+
 _C.MODEL = CN()
 _C.MODEL.LOAD_PROPOSALS = False
 _C.MODEL.MASK_ON = False
@@ -338,7 +342,7 @@ _C.MODEL.ROI_MASK_HEAD.POOLER_TYPE = "ROIAlignV2"
 
 
 # ---------------------------------------------------------------------------- #
-# Sim Head
+# Sim Net
 # ---------------------------------------------------------------------------- #
 _C.MODEL.SIM_NET = CN()
 _C.MODEL.SIM_NET.NAME = "SimNet"
@@ -522,7 +526,7 @@ _C.SOLVER.LR_SCHEDULER_NAME = "WarmupMultiStepLR"
 
 _C.SOLVER.MAX_ITER = 40000
 
-_C.SOLVER.BASE_LR = 0.001
+_C.SOLVER.BASE_LR = 0.0005
 
 _C.SOLVER.MOMENTUM = 0.9
 
@@ -547,7 +551,7 @@ _C.SOLVER.CHECKPOINT_PERIOD = 1000
 # Number of images per batch across all machines.
 # If we have 16 GPUs and IMS_PER_BATCH = 32,
 # each GPU will see 2 images per batch.
-_C.SOLVER.IMS_PER_BATCH = 16
+_C.SOLVER.IMS_PER_BATCH = 3
 
 # Detectron v1 (and previous detection code) used a 2x higher LR and 0 WD for
 # biases. This is not useful (at least for recent models). You should avoid
@@ -557,12 +561,12 @@ _C.SOLVER.BIAS_LR_FACTOR = 1.0
 _C.SOLVER.WEIGHT_DECAY_BIAS = _C.SOLVER.WEIGHT_DECAY
 
 # Gradient clipping
-_C.SOLVER.CLIP_GRADIENTS = CN({"ENABLED": False})
+_C.SOLVER.CLIP_GRADIENTS = CN({"ENABLED": True})
 # Type of gradient clipping, currently 2 values are supported:
 # - "value": the absolute values of elements of each gradients are clipped
 # - "norm": the norm of the gradient for each parameter is clipped thus
 #   affecting all elements in the parameter
-_C.SOLVER.CLIP_GRADIENTS.CLIP_TYPE = "value"
+_C.SOLVER.CLIP_GRADIENTS.CLIP_TYPE = "norm"
 # Maximum absolute value used for clipping gradients
 _C.SOLVER.CLIP_GRADIENTS.CLIP_VALUE = 1.0
 # Floating point number p for L-p norm to be used with the "norm"

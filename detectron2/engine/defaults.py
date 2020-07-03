@@ -13,7 +13,9 @@ import argparse
 import logging
 import os
 import sys
+import time
 from collections import OrderedDict
+import numpy as np
 import torch
 from fvcore.common.file_io import PathManager
 from fvcore.nn.precise_bn import get_bn_modules
@@ -273,7 +275,7 @@ class DefaultTrainer(SimpleTrainer):
         # Assume these objects must be constructed in this order.
         model = self.build_model(cfg)
         optimizer = self.build_optimizer(cfg, model)
-        data_loader = self.build_train_loader(cfg)
+        data_loader = self.build_train_loader(cfg) if cfg.PHASE.TRAIN else None
         print('***************{}***************'.format(comm.get_world_size()))
         print('***************{}***************'.format(comm.get_local_rank()))
         # For training, wrap with DDP. But don't need this for inference.
@@ -479,7 +481,7 @@ Alternatively, you can call evaluation functions yourself (see Colab balloon tut
         )
 
     @classmethod
-    def test(cls, cfg, model, evaluators=None):
+    def test(cls, cfg, evaluators=None):
         """
         Args:
             cfg (CfgNode):
@@ -516,7 +518,7 @@ Alternatively, you can call evaluation functions yourself (see Colab balloon tut
                     )
                     results[dataset_name] = {}
                     continue
-            results_i = inference_on_dataset(model, data_loader, evaluator)
+            results_i = inference_on_dataset(self.model, data_loader, evaluator)
             results[dataset_name] = results_i
             if comm.is_main_process():
                 assert isinstance(
@@ -530,3 +532,98 @@ Alternatively, you can call evaluation functions yourself (see Colab balloon tut
         if len(results) == 1:
             results = list(results.values())[0]
         return results
+
+    def find_most_similar(self, cfg, query_idx=0, topk=20):
+        self.model.eval()
+        dataset_name = cfg.DATASETS.TEST[0]
+        cfg.SOLVER.IMS_PER_BATCH = 1
+        data_loader = self.build_test_loader(cfg, dataset_name)
+        for idx, input_data in enumerate(data_loader):
+            if idx == query_idx:
+                q_instances, query_vec = self.model(input_data)
+                if q_instances is None:
+                    print('There is no detected object in query image!')
+                    return None
+                q_instances = q_instances[0]
+                q_instances['file_name'] = input_data[0]['file_name']
+                import pdb
+                break
+            else:
+                continue
+        # q_pred_classes = q_instances['instances'].pred_classes[q_instances['instances'].pred_idx]
+        topk_info = np.empty((query_vec.shape[0], topk + cfg.MODEL.ROI_HEADS.NUM_CLASSES, 3), dtype=object)
+        topk_bbox = np.zeros((query_vec.shape[0], topk + cfg.MODEL.ROI_HEADS.NUM_CLASSES, 4))
+        topk_dist = np.zeros((query_vec.shape[0], topk + cfg.MODEL.ROI_HEADS.NUM_CLASSES))
+        del data_loader
+        cfg.SOLVER.IMS_PER_BATCH = 2
+        data_loader = self.build_test_loader(cfg, dataset_name)
+        start_time = time.time()
+        print('Query img: {}'.format(q_instances['file_name']))
+        print('predicted class: {}'.format(q_instances['instances'].pred_classes[q_instances['instances'].pred_idx]))
+        print('Total Batch Length: {}'.format(len(data_loader)))
+        for idx, input_data in enumerate(data_loader):
+            target_instances, target_vecs = self.model(input_data)
+            if idx % 1000 == 0:
+                print('Processing {}-th batch, Elapsed Time: {:.2f}s'.format(idx, time.time() - start_time))
+            if target_instances is None:
+                print('There is no detected object for similarity in {}-th image!'.format(idx))
+                continue
+            for q in range(query_vec.shape[0]):
+                t_idx = -target_vecs.shape[0]
+                topk_dist[q][-target_vecs.shape[0]:] = self.vdist(query_vec[q].detach().cpu().numpy(), target_vecs.detach().cpu().numpy())
+                for i, t_inst in enumerate(target_instances):
+                    t_idx_end = t_idx + t_inst['instances'].pred_idx.sum().item()
+                    t_idx_arr = np.arange(t_idx, t_idx_end)
+                    topk_info[q,t_idx_arr,0] = input_data[i]['file_name']
+                    pred = t_inst['instances'].pred_idx
+                    topk_info[q,t_idx_arr,1] = t_inst['instances'].pred_classes[pred].detach().cpu().numpy()
+                    topk_info[q,t_idx_arr,2] = t_inst['instances'].scores[pred].detach().cpu().numpy()
+                    topk_bbox[q,t_idx_arr] = t_inst['instances'].pred_boxes[pred].tensor.detach().cpu().numpy()
+                    t_idx = t_idx_end
+                sorted_idx = np.argsort(-topk_dist[q])
+                topk_info[q] = topk_info[q][sorted_idx]
+                topk_dist[q] = topk_dist[q][sorted_idx]
+                topk_bbox[q] = topk_bbox[q][sorted_idx]
+            if idx % 1000 == 0:
+                print('Processing {}-th batch, Elapsed Time: {:.2f}s'.format(idx, time.time() - start_time))
+                print('topk img file path: {}'.format(topk_info[:, :topk, 0]))
+                print('topk img pred class: {}'.format(topk_info[:, :topk, 1]))
+                print('topk img scores: {}'.format(topk_info[:, :topk, 2]))
+                print('topk distance: {}'.format(topk_dist[:, :topk]))
+
+        return q_instances, topk_info[:, :topk], topk_dist[:, :topk], topk_bbox[:, :topk]
+
+    def vdist(self, vec, mtx):
+        return 1 / np.exp(np.power(np.power(vec - mtx, 2).sum(1), 0.5))
+            # img path, sim vector, pred class, pred box, pred score
+
+    def save_sim_vectors(self, cfg, save_dir):
+        topk_info = np.empty((topk + cfg.MODEL.ROI_HEADS.NUM_CLASSES, 4), dtype=object)
+        topk_bbox = np.zeros((topk + cfg.MODEL.ROI_HEADS.NUM_CLASSES, 4))
+        
+        cfg.SOLVER.IMS_PER_BATCH = 1
+        dataset_name = cfg.DATASET.TEST[0]
+        data_loader = self.build_test_loader(cfg, dataset_name)
+        for idx, input_data in enumerate(data_loader):
+            target_instance, target_vecs = self.model(input_data)
+            if idx % 1000 == 0:
+                print('Processing {}-th batch, Elapsed Time: {:.2f}s'.format(idx, time.time() - start_time))
+            if target_instances is None:
+                print('There is no detected object for similarity in {}-th image!'.format(idx))
+                continue
+            target_instance = target_instance[0]
+
+            for i, t_inst in enumerate(target_instances):
+                t_idx_end = t_idx + t_inst['instances'].pred_idx.sum().item()
+                t_idx_arr = np.arange(t_idx, t_idx_end)
+                topk_info[q,t_idx_arr,0] = input_data[i]['file_name']
+                pred = t_inst['instances'].pred_idx
+                topk_info[q,t_idx_arr,1] = t_inst['instances'].pred_classes[pred].detach().cpu().numpy()
+                topk_info[q,t_idx_arr,2] = t_inst['instances'].scores[pred].detach().cpu().numpy()
+                topk_bbox[q,t_idx_arr] = t_inst['instances'].pred_boxes[pred].tensor.detach().cpu().numpy()
+                t_idx = t_idx_end
+            sorted_idx = np.argsort(-topk_dist[q])
+            topk_info[q] = topk_info[q][sorted_idx]
+            topk_dist[q] = topk_dist[q][sorted_idx]
+            topk_bbox[q] = topk_bbox[q][sorted_idx]
+        

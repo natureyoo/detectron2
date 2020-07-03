@@ -2,6 +2,7 @@
 import numpy as np
 import torch
 from torch.utils.data.sampler import BatchSampler, Sampler
+import time
 
 
 class GroupedBatchSampler(BatchSampler):
@@ -70,7 +71,6 @@ class TripleBatchSampler(BatchSampler):
                 "sampler should be an instance of "
                 "torch.utils.data.Sampler, but got sampler={}".format(sampler)
             )
-        import time
         start_time = time.time()
         self.sampler = sampler
         cur_pair_id = 1

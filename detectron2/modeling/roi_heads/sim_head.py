@@ -360,10 +360,25 @@ class SimNet(nn.Module):
         if self.training:
             proposals = self.label_and_sample_proposals(proposals, targets)
             proposal_boxes = [x.proposal_boxes for x in proposals]
-            sim_features = self.sim_pooler(features, proposal_boxes)
-        x = self.sim_head(sim_features)
+        else:
+            proposal_boxes = self.pred_boxes(proposals)
+        features = self.sim_pooler(features, proposal_boxes)
+        if features.shape[0] == 0:
+            return None, None
+        x = self.sim_head(features)
         if self.training:
             loss = triplet_loss(x, proposals, self.sampler)
             return {'loss_sim': loss}
         else:
-            return x
+            return proposals, x
+
+    def pred_boxes(self, proposals):
+        result = []
+        for p in proposals:
+            class_set = set(p.pred_classes[p.scores >= 0.5].cpu().numpy())
+            p.pred_idx = torch.zeros(len(p), dtype=torch.bool)
+            for c in class_set:
+                p.pred_idx[np.where(p.pred_classes.cpu().numpy() == c)[0][0]] = True
+            result.append(p.pred_boxes[p.pred_idx])
+       
+        return result
