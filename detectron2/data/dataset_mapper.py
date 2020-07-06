@@ -120,9 +120,6 @@ class DatasetMapper:
             for anno in dataset_dict["annotations"]:
                 if not self.mask_on:
                     anno.pop("segmentation", None)
-                if not self.sim_on:
-                    anno.pop("pair_id", None)
-                    anno.pop("style", None)
                 if not self.keypoint_on:
                     anno.pop("keypoints", None)
             # USER: Implement additional transformations if you have other types of data

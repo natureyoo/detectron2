@@ -37,6 +37,116 @@ def build_sim_net(cfg, input_shape):
     return SIM_NET_REGISTRY.get(name)(cfg, input_shape)
 
 
+def _sample_proposals(matched_idxs: torch.Tensor, matched_labels: torch.Tensor, gt_classes: torch.Tensor,
+                      style: torch.Tensor, num_classes) -> Tuple[torch.Tensor, torch.Tensor]:
+        # matched_labels == 1, style > 0, class별로 최대한 evenly-distributed
+        """
+        Based on the matching between N proposals and M groundtruth,
+        sample the proposals and set their classification labels.
+
+        Args:
+            matched_idxs (Tensor): a vector of length N, each is the best-matched
+                gt index in [0, M) for each proposal.
+            matched_labels (Tensor): a vector of length N, the matcher's label
+                (one of cfg.MODEL.ROI_HEADS.IOU_LABELS) for each proposal.
+            gt_classes (Tensor): a vector of length M.
+
+        Returns:
+            Tensor: a vector of indices of sampled proposals. Each is in [0, N).
+            Tensor: a vector of the same length, the classification label for
+                each sampled proposal. Each sample is labeled as either a category in
+                [0, num_classes) or the background (num_classes).
+        """
+        has_gt = gt_classes.numel() > 0
+        # Get the corresponding GT for each proposal
+        if has_gt:
+            gt_classes = gt_classes[matched_idxs]
+            style = style[matched_idxs]
+        else:
+            gt_classes = torch.zeros_like(matched_idxs) + num_classes
+        sampled_idxs = torch.nonzero((style > 0) & (matched_labels == 1), as_tuple=True)
+        return sampled_idxs, gt_classes[sampled_idxs], style[sampled_idxs]
+
+
+@torch.no_grad()
+def label_and_sample_proposals_for_sim(proposals: List[Instances], targets: List[Instances], proposal_matcher,
+                               proposal_append_gt=True, num_classes=13) -> List[Instances]:
+        """
+        Prepare some proposals to be used to train the ROI heads.
+        It performs box matching between `proposals` and `targets`, and assigns
+        training labels to the proposals.
+        It returns ``self.batch_size_per_image`` random samples from proposals and groundtruth boxes,
+         with evenly-distributed for classes
+
+        Args:
+            See :meth:`SIMHead.forward`
+
+        Returns:
+            list[Instances]:
+                length `N` list of `Instances`s containing the proposals
+                sampled for training. Each `Instances` has the following fields:
+
+                - proposal_boxes: the proposal boxes
+                - gt_boxes: the ground-truth box that the proposal is assigned to
+                  (this is only meaningful if the proposal has a label > 0; if label = 0
+                  then the ground-truth box is random)
+
+                Other fields such as "gt_classes", "gt_masks", that's included in `targets`.
+        """
+        gt_boxes = [x.gt_boxes for x in targets]
+        if proposal_append_gt:
+            proposals = add_ground_truth_to_proposals(gt_boxes, proposals)
+            # gt bbox를 proposal에 추가, RPN에서 내보내는 proposal은 1000개, 여기에 gt bbox 2개 추가하여 proposals 는 1002개 됨
+        proposals_with_gt = []
+        num_samples = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):     # targets[0] 은 한 이미지 내의 여러 object에 대함
+            has_gt = len(targets_per_image) > 0
+            match_quality_matrix = pairwise_iou(
+                targets_per_image.gt_boxes, proposals_per_image.proposal_boxes
+            )   # 실제 image에 N개의 obj있고, M개의 proposal있다면, matrix shape은 N*M
+            matched_idxs, matched_labels = proposal_matcher(match_quality_matrix)
+            sampled_idxs, gt_classes, styles = _sample_proposals(
+                matched_idxs, matched_labels, targets_per_image.gt_classes, targets_per_image.style, num_classes
+            )   # matched_labels == 1, style > 0, class별로 최대한 evenly-distributed
+            # Set target attributes of the sampled proposals:
+            proposals_per_image = proposals_per_image[sampled_idxs]
+            proposals_per_image.gt_classes = gt_classes
+            # We index all the attributes of targets that start with "gt_"
+            # and have not been added to proposals yet (="gt_classes").
+            if has_gt:
+                sampled_targets = matched_idxs[sampled_idxs]
+                for (trg_name, trg_value) in targets_per_image.get_fields().items():
+                    if (trg_name.startswith("gt_") or trg_name in ['source', 'pair_id', 'style'])\
+                            and not proposals_per_image.has(trg_name):
+                        proposals_per_image.set(trg_name, trg_value[sampled_targets])
+                        # 'gt_boxes', 'gt_masks', 'pair_id', 'style' 을 proposal에 넣음
+            else:
+                gt_boxes = Boxes(
+                    targets_per_image.gt_boxes.tensor.new_zeros((len(sampled_idxs), 4))
+                )
+                proposals_per_image.gt_boxes = gt_boxes
+
+            proposals_with_gt.append(proposals_per_image)
+            # num_samples.append(len(gt_classes))
+        # Log the number of fg/bg samples that are selected for training ROI heads
+        # storage = get_event_storage()
+        # storage.put_scalar("sim_head/num_samples", np.mean(num_samples))
+
+        return proposals_with_gt    # style > 0 인 애들에 대한 proposals를 return
+
+@torch.no_grad()
+def pred_proposals_for_sim(proposals: List[Instances]) -> List[Instances]:
+    result = []
+    for p in proposals:
+        class_set = set(p.pred_classes[p.scores >= 0.5].cpu().numpy())
+        p.pred_idx = torch.zeros(len(p), dtype=torch.bool)
+        for c in class_set:
+            p.pred_idx[np.where(p.pred_classes.cpu().numpy() == c)[0][0]] = True
+        result.append(p.pred_boxes[p.pred_idx])
+
+    return result
+
+
 class TripletSelector:
     def __init__(self, max=None):
         self.max = max
@@ -197,7 +307,8 @@ class SimNet(nn.Module):
         """
         super().__init__()
         self._output_size = 2
-        self.in_features=in_features
+        self.num_classes = 13
+        self.in_features = in_features
         self.proposal_append_gt = proposal_append_gt
         self.proposal_matcher = proposal_matcher
         self.sim_pooler = sim_pooler
@@ -252,103 +363,6 @@ class SimNet(nn.Module):
         )
         return ret
 
-    def _sample_proposals(
-        self, matched_idxs: torch.Tensor, matched_labels: torch.Tensor, gt_classes: torch.Tensor, style: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:     # matched_labels == 1, style > 0, class별로 최대한 evenly-distributed
-        """
-        Based on the matching between N proposals and M groundtruth,
-        sample the proposals and set their classification labels.
-
-        Args:
-            matched_idxs (Tensor): a vector of length N, each is the best-matched
-                gt index in [0, M) for each proposal.
-            matched_labels (Tensor): a vector of length N, the matcher's label
-                (one of cfg.MODEL.ROI_HEADS.IOU_LABELS) for each proposal.
-            gt_classes (Tensor): a vector of length M.
-
-        Returns:
-            Tensor: a vector of indices of sampled proposals. Each is in [0, N).
-            Tensor: a vector of the same length, the classification label for
-                each sampled proposal. Each sample is labeled as either a category in
-                [0, num_classes) or the background (num_classes).
-        """
-        has_gt = gt_classes.numel() > 0
-        # Get the corresponding GT for each proposal
-        if has_gt:
-            gt_classes = gt_classes[matched_idxs]
-            style = style[matched_idxs]
-        else:
-            gt_classes = torch.zeros_like(matched_idxs) + self.num_classes
-        sampled_idxs = torch.nonzero((style > 0) & (matched_labels == 1), as_tuple=True)
-        return sampled_idxs, gt_classes[sampled_idxs], style[sampled_idxs]
-
-    @torch.no_grad()
-    def label_and_sample_proposals(
-        self, proposals: List[Instances], targets: List[Instances]
-    ) -> List[Instances]:
-        """
-        Prepare some proposals to be used to train the ROI heads.
-        It performs box matching between `proposals` and `targets`, and assigns
-        training labels to the proposals.
-        It returns ``self.batch_size_per_image`` random samples from proposals and groundtruth boxes,
-         with evenly-distributed for classes
-
-        Args:
-            See :meth:`SIMHead.forward`
-
-        Returns:
-            list[Instances]:
-                length `N` list of `Instances`s containing the proposals
-                sampled for training. Each `Instances` has the following fields:
-
-                - proposal_boxes: the proposal boxes
-                - gt_boxes: the ground-truth box that the proposal is assigned to
-                  (this is only meaningful if the proposal has a label > 0; if label = 0
-                  then the ground-truth box is random)
-
-                Other fields such as "gt_classes", "gt_masks", that's included in `targets`.
-        """
-        gt_boxes = [x.gt_boxes for x in targets]
-        if self.proposal_append_gt:
-            proposals = add_ground_truth_to_proposals(gt_boxes, proposals)
-            # gt bbox를 proposal에 추가, RPN에서 내보내는 proposal은 1000개, 여기에 gt bbox 2개 추가하여 proposals 는 1002개 됨
-        proposals_with_gt = []
-        num_samples = []
-        for proposals_per_image, targets_per_image in zip(proposals, targets): # targets[0] 은 한 이미지 내의 여러 object에 대함
-            has_gt = len(targets_per_image) > 0
-            match_quality_matrix = pairwise_iou(
-                targets_per_image.gt_boxes, proposals_per_image.proposal_boxes
-            )   # 실제 image에 N개의 obj있고, M개의 proposal있다면, matrix shape은 N*M
-            matched_idxs, matched_labels = self.proposal_matcher(match_quality_matrix)
-            sampled_idxs, gt_classes, styles = self._sample_proposals(
-                matched_idxs, matched_labels, targets_per_image.gt_classes, targets_per_image.style
-            )   # matched_labels == 1, style > 0, class별로 최대한 evenly-distributed
-            # Set target attributes of the sampled proposals:
-            proposals_per_image = proposals_per_image[sampled_idxs]
-            proposals_per_image.gt_classes = gt_classes
-            # We index all the attributes of targets that start with "gt_"
-            # and have not been added to proposals yet (="gt_classes").
-            if has_gt:
-                sampled_targets = matched_idxs[sampled_idxs]
-                for (trg_name, trg_value) in targets_per_image.get_fields().items():
-                    if (trg_name.startswith("gt_") or trg_name in ['pair_id', 'style'])\
-                            and not proposals_per_image.has(trg_name):
-                        proposals_per_image.set(trg_name, trg_value[sampled_targets])
-                        # 'gt_boxes', 'gt_masks', 'pair_id', 'style' 을 proposal에 넣음
-            else:
-                gt_boxes = Boxes(
-                    targets_per_image.gt_boxes.tensor.new_zeros((len(sampled_idxs), 4))
-                )
-                proposals_per_image.gt_boxes = gt_boxes
-
-            proposals_with_gt.append(proposals_per_image)
-            num_samples.append(len(gt_classes))
-        # Log the number of fg/bg samples that are selected for training ROI heads
-        storage = get_event_storage()
-        storage.put_scalar("sim_head/num_samples", np.mean(num_samples))
-
-        return proposals_with_gt    # style > 0 인 애들에 대한 proposals를 return
-
     def forward(
             self,
             images: ImageList,
@@ -358,7 +372,7 @@ class SimNet(nn.Module):
         del images
         features = [features[f] for f in self.in_features]
         if self.training:
-            proposals = self.label_and_sample_proposals(proposals, targets)
+            proposals = label_and_sample_proposals_for_sim(proposals, targets, self.proposal_append_gt, self.proposal_matcher, self.num_classes)
             proposal_boxes = [x.proposal_boxes for x in proposals]
         else:
             proposal_boxes = self.pred_boxes(proposals)

@@ -11,7 +11,8 @@ from detectron2.utils.logger import log_first_n
 from ..backbone import build_backbone
 from ..postprocessing import detector_postprocess
 from ..proposal_generator import build_proposal_generator
-from ..roi_heads import build_roi_heads, build_sim_net
+from ..roi_heads import build_roi_heads, build_sim_net, label_and_sample_proposals_for_sim
+from ..matcher import Matcher
 from .build import META_ARCH_REGISTRY
 
 __all__ = ["GeneralizedRCNN", "ProposalNetwork"]
@@ -40,6 +41,12 @@ class GeneralizedRCNN(nn.Module):
         assert len(cfg.MODEL.PIXEL_MEAN) == len(cfg.MODEL.PIXEL_STD)
         self.register_buffer("pixel_mean", torch.Tensor(cfg.MODEL.PIXEL_MEAN).view(-1, 1, 1))
         self.register_buffer("pixel_std", torch.Tensor(cfg.MODEL.PIXEL_STD).view(-1, 1, 1))
+
+        self.proposal_matcher_for_sim = Matcher(
+            cfg.MODEL.SIM_NET.IOU_THRESHOLDS,
+            cfg.MODEL.SIM_NET.IOU_LABELS,
+            allow_low_quality_matches=False,
+        )
 
     @property
     def device(self):
@@ -133,7 +140,7 @@ class GeneralizedRCNN(nn.Module):
         if self.vis_period > 0:
             storage = get_event_storage()
             if storage.iter % self.vis_period == 0:
-                selfs.visualize_training(batched_inputs, proposals)
+                self.visualize_training(batched_inputs, proposals)
         losses = {}
         losses.update(detector_losses)
         losses.update(proposal_losses)
@@ -185,6 +192,41 @@ class GeneralizedRCNN(nn.Module):
             return GeneralizedRCNN._postprocess(results, batched_inputs, images.image_sizes), sim_vecs
         else:
             return results, sim_vecs
+
+    def make_proposal(self, batched_inputs, sim_training=True):
+        """
+        make proposal boxes for inputs
+        """
+        if sim_training:
+            if "instances" in batched_inputs[0]:
+                gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
+            elif "targets" in batched_inputs[0]:
+                log_first_n(
+                    logging.WARN, "'targets' in the model inputs is now renamed to 'instances'!", n=10
+                )
+                gt_instances = [x["targets"].to(self.device) for x in batched_inputs]
+            else:
+                gt_instances = None
+
+            images = self.preprocess_image(batched_inputs)
+            features = self.backbone(images.tensor)
+            proposals, _ = self.proposal_generator(images, features, gt_instances)
+            proposals = label_and_sample_proposals_for_sim(proposals, gt_instances, self.proposal_matcher_for_sim, True)
+            for (p, b, i) in zip(proposals, [(b['height'], b['width']) for b in batched_inputs], images.image_sizes):
+                ratio = torch.tensor([[b[0]/i[0], b[1]/i[1], b[0]/i[0], b[1]/i[1]]]).to(self.device)
+                p.gt_boxes.tensor *= ratio
+                p.proposal_boxes.tensor *= ratio
+            return proposals
+
+        else:
+            images = self.preprocess_image(batched_inputs)
+            features = self.backbone(images.tensor)
+            proposals, _ = self.proposal_generator(images, features)
+            proposals = [p[0] for p in proposals]
+            for (p, b, i) in zip(proposals, [(b['height'], b['width']) for b in batched_inputs], images.image_sizes):
+                ratio = torch.tensor([[b[0]/i[0], b[1]/i[1], b[0]/i[0], b[1]/i[1]]]).to(self.device)
+                p.proposal_boxes.tensor *= ratio
+            return proposals
 
     def preprocess_image(self, batched_inputs):
         """

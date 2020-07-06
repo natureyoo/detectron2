@@ -306,6 +306,11 @@ def annotations_to_instances(annos, image_size, mask_format="polygon"):
     classes = torch.tensor(classes, dtype=torch.int64)
     target.gt_classes = classes
 
+    if "source" in annos[0].keys():
+        source = [1 if obj["source"] == "user" else 0 for obj in annos]
+        source = torch.tensor(source, dtype=torch.int64)
+        target.source = source
+
     if "pair_id" in annos[0].keys():
         pair_id = [obj["pair_id"] for obj in annos]
         pair_id = torch.tensor(pair_id, dtype=torch.int64)
@@ -521,6 +526,6 @@ def build_transform_gen(cfg, is_train):
     tfm_gens = []
     tfm_gens.append(T.ResizeShortestEdge(min_size, max_size, sample_style))
     if is_train:
-        tfm_gens.append(T.RandomFlip())
+        # tfm_gens.append(T.RandomFlip())
         logger.info("TransformGens used in training: " + str(tfm_gens))
     return tfm_gens

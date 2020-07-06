@@ -119,6 +119,7 @@ _C.DATALOADER.ASPECT_RATIO_GROUPING = False
 _C.DATALOADER.TRIPLET_GROUPING = True
 # Options: TrainingSampler, RepeatFactorTrainingSampler
 _C.DATALOADER.SAMPLER_TRAIN = "PairTrainingSampler"            # "TrainingSampler"
+_C.DATALOADER.SHUFFLE = True
 # Repeat threshold for RepeatFactorTrainingSampler
 _C.DATALOADER.REPEAT_THRESHOLD = 0.0
 # if True, the dataloader will filter out images that have no associated

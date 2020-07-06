@@ -306,13 +306,15 @@ def build_detection_train_loader(cfg, mapper=None):
     logger = logging.getLogger(__name__)
     logger.info("Using training sampler {}".format(sampler_name))
     if sampler_name == "TrainingSampler":
-        sampler = samplers.TrainingSampler(len(dataset))
+        sampler = samplers.TrainingSampler(len(dataset), cfg.DATALOADER.SHUFFLE)
     elif sampler_name == "PairTrainingSampler":
         sampler = samplers.PairTrainingSampler(dataset_dicts)
     elif sampler_name == "RepeatFactorTrainingSampler":
         sampler = samplers.RepeatFactorTrainingSampler(
             dataset_dicts, cfg.DATALOADER.REPEAT_THRESHOLD
         )
+    elif sampler_name == "InferenceSampler":
+        sampler = samplers.InferenceSampler(len(dataset))
     else:
         raise ValueError("Unknown training sampler: {}".format(sampler_name))
 
@@ -341,7 +343,7 @@ def build_detection_train_loader(cfg, mapper=None):
         data_loader = AspectRatioGroupedDataset(data_loader, images_per_worker)
     else:
         batch_sampler = torch.utils.data.sampler.BatchSampler(
-            sampler, images_per_worker, drop_last=True
+            sampler, images_per_worker, drop_last=False
         )
         # drop_last so the batch always have the same size
         data_loader = torch.utils.data.DataLoader(
@@ -349,7 +351,7 @@ def build_detection_train_loader(cfg, mapper=None):
             num_workers=cfg.DATALOADER.NUM_WORKERS,
             batch_sampler=batch_sampler,
             collate_fn=trivial_batch_collator,
-            worker_init_fn=worker_init_reset_seed,
+            worker_init_fn=None,   # worker_init_reset_seed,
         )
 
     return data_loader
