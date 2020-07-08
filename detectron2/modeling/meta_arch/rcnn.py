@@ -193,7 +193,7 @@ class GeneralizedRCNN(nn.Module):
         else:
             return results, sim_vecs
 
-    def make_proposal(self, batched_inputs, sim_training=True):
+    def make_proposal(self, batched_inputs, sim_training=True, need_resize=True):
         """
         make proposal boxes for inputs
         """
@@ -212,10 +212,11 @@ class GeneralizedRCNN(nn.Module):
             features = self.backbone(images.tensor)
             proposals, _ = self.proposal_generator(images, features, gt_instances)
             proposals = label_and_sample_proposals_for_sim(proposals, gt_instances, self.proposal_matcher_for_sim, True)
-            for (p, b, i) in zip(proposals, [(b['height'], b['width']) for b in batched_inputs], images.image_sizes):
-                ratio = torch.tensor([[b[0]/i[0], b[1]/i[1], b[0]/i[0], b[1]/i[1]]]).to(self.device)
-                p.gt_boxes.tensor *= ratio
-                p.proposal_boxes.tensor *= ratio
+            if need_resize:
+                for (p, b, i) in zip(proposals, [(b['height'], b['width']) for b in batched_inputs], images.image_sizes):
+                    ratio = torch.tensor([[b[0]/i[0], b[1]/i[1], b[0]/i[0], b[1]/i[1]]]).to(self.device)
+                    p.gt_boxes.tensor *= ratio
+                    p.proposal_boxes.tensor *= ratio
             return proposals
 
         else:
@@ -223,9 +224,10 @@ class GeneralizedRCNN(nn.Module):
             features = self.backbone(images.tensor)
             proposals, _ = self.proposal_generator(images, features)
             proposals = [p[0] for p in proposals]
-            for (p, b, i) in zip(proposals, [(b['height'], b['width']) for b in batched_inputs], images.image_sizes):
-                ratio = torch.tensor([[b[0]/i[0], b[1]/i[1], b[0]/i[0], b[1]/i[1]]]).to(self.device)
-                p.proposal_boxes.tensor *= ratio
+            if need_resize:
+                for (p, b, i) in zip(proposals, [(b['height'], b['width']) for b in batched_inputs], images.image_sizes):
+                    ratio = torch.tensor([[b[0]/i[0], b[1]/i[1], b[0]/i[0], b[1]/i[1]]]).to(self.device)
+                    p.proposal_boxes.tensor *= ratio
             return proposals
 
     def preprocess_image(self, batched_inputs):
