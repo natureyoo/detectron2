@@ -127,7 +127,7 @@ def setup(args):
     cfg.merge_from_list(args.opts)
 
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = 13
-    cfg.SOLVER.MAX_ITER = 3000
+    cfg.SOLVER.MAX_ITER = 100000
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 128
 
     cfg.freeze()
@@ -136,8 +136,10 @@ def setup(args):
 
 
 def main(args):
-    register_coco_instances("deepfashion2_train", {}, "/second/DeepFashion2/coco_format/instance_train.json", "/second/DeepFashion2/train/image")
-    register_coco_instances("deepfashion2_val", {}, "/second/DeepFashion2/coco_format/instance_val.json", "/second/DeepFashion2/val/image/")
+    register_coco_instances("deepfashion2_train", {}, "/home/ubuntu/DeepFashion2/coco_format/instance_train.json", "/home/ubuntu/DeepFashion2/train/image")
+    register_coco_instances("deepfashion2_val", {}, "/home/ubuntu/DeepFashion2/coco_format/instance_val.json", "/home/ubuntu/DeepFashion2/val/image/")
+
+    # torch.cuda.set_device(2)
 
     cfg = setup(args)
 

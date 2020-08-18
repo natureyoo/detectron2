@@ -40,7 +40,7 @@ DATASETS:
   TRAIN: ("deepfashion2_train",)
   TEST: ("deepfashion2_val",)
 SOLVER:
-  IMS_PER_BATCH: 3
+  IMS_PER_BATCH: 12
   BASE_LR: 0.002
   STEPS: (60000, 80000)
   MAX_ITER: 90000
