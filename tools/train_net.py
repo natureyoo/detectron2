@@ -21,6 +21,7 @@ import os
 from collections import OrderedDict
 import torch
 
+from detectron2.data.datasets import register_coco_instances
 import detectron2.utils.comm as comm
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import get_cfg
@@ -129,6 +130,9 @@ def setup(args):
 
 
 def main(args):
+    register_coco_instances("deepfashion2_train", {}, "/home/ubuntu/DeepFashion2/coco_format/instance_train.json", "/home/ubuntu/DeepFashion2/train/image")
+    register_coco_instances("deepfashion2_val", {}, "/home/ubuntu/DeepFashion2/coco_format/instance_val.json", "/home/ubuntu/DeepFashion2/val/image/")
+
     cfg = setup(args)
 
     if args.eval_only:
