@@ -91,6 +91,7 @@ class DatasetEvaluators(DatasetEvaluator):
         results = OrderedDict()
         for evaluator in self._evaluators:
             result = evaluator.evaluate()
+            import pdb; pdb.set_trace()
             if is_main_process() and result is not None:
                 for k, v in result.items():
                     assert (

@@ -92,7 +92,6 @@ class CityscapeDetectionEvaluator(DatasetEvaluator):
 
         with tempfile.TemporaryDirectory(prefix="pascal_voc_eval_") as dirname:
             res_file_template = os.path.join(dirname, "{}.txt")
-
             aps = defaultdict(list)  # iou -> ap per class
             for cls_id, cls_name in enumerate(self._class_names):
                 lines = predictions.get(cls_id, [""])
@@ -113,7 +112,9 @@ class CityscapeDetectionEvaluator(DatasetEvaluator):
 
         ret = OrderedDict()
         mAP = {iou: np.mean(x) for iou, x in aps.items()}
-        ret["bbox"] = {"AP": np.mean(list(mAP.values())), "AP50": mAP[50], "AP75": mAP[75], "class-AP50": aps[50]}
+        ret["bbox"] = {"AP": np.mean(list(mAP.values())), "AP50": mAP[50], "AP75": mAP[75]}
+        for cls_name, ap in zip(self._class_names, aps[50]):
+            ret["bbox"]["{}-AP50".format(cls_name)] = ap
         return ret
 
 

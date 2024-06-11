@@ -72,7 +72,7 @@ def load_cityscapes_voc_instances(dirname: str, split: str, class_names: Union[L
     return dicts
 
 
-def register_cityscape(name, dirname, split, year, class_names=CLASS_NAMES):
+def register_cityscapes_voc(name, dirname, split, year, class_names=CLASS_NAMES):
     DatasetCatalog.register(name, lambda: load_cityscapes_voc_instances(dirname, split, class_names))
     MetadataCatalog.get(name).set(
         thing_classes=list(class_names), dirname=dirname, year=year, split=split

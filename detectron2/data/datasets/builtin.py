@@ -249,8 +249,8 @@ def register_all_ade20k(root):
 # register cityscapes_voc for detection task
 def register_all_cityscapes_voc(root):
     SPLITS = [
-        ("cityscape_2007_train_s", "cityscape/VOC2007", "train_s"),
-        ("cityscape_2007_test_s", "cityscape/VOC2007", "test_s"),
+        ("cityscape_2007_train_s", "cityscapes", "train_s"),
+        ("cityscape_2007_test_s", "cityscapes", "test_s"),
     ]
     for name, dirname, split in SPLITS:
         year = 2007 if "2007" in name else 2012
@@ -260,8 +260,8 @@ def register_all_cityscapes_voc(root):
 # ==== Predefined splits for Foggy ===========
 def register_all_foggy_cityscapes_voc(root):
     SPLITS = [
-        ("cityscape_2007_train_t", "cityscape/VOC2007", "train_t"),
-        ("cityscape_2007_test_t", "cityscape/VOC2007", "test_t"),
+        ("cityscape_2007_train_t", "cityscapes", "train_t"),
+        ("cityscape_2007_test_t", "cityscapes", "test_t"),
     ]
     for name, dirname, split in SPLITS:
         year = 2007 if "2007" in name else 2012
