@@ -28,6 +28,7 @@ from .coco import load_sem_seg, register_coco_instances
 from .coco_panoptic import register_coco_panoptic, register_coco_panoptic_separated
 from .lvis import get_lvis_instances_meta, register_lvis_instances
 from .pascal_voc import register_pascal_voc
+from .cityscapes_voc import register_cityscapes_voc
 
 # ==== Predefined datasets and splits for COCO ==========
 
@@ -245,6 +246,27 @@ def register_all_ade20k(root):
             ignore_label=255,
         )
 
+# register cityscapes_voc for detection task
+def register_all_cityscapes_voc(root):
+    SPLITS = [
+        ("cityscape_2007_train_s", "cityscape/VOC2007", "train_s"),
+        ("cityscape_2007_test_s", "cityscape/VOC2007", "test_s"),
+    ]
+    for name, dirname, split in SPLITS:
+        year = 2007 if "2007" in name else 2012
+        register_cityscapes_voc(name, os.path.join(root, dirname), split, year)
+        MetadataCatalog.get(name).evaluator_type = "cityscapes_voc"
+
+# ==== Predefined splits for Foggy ===========
+def register_all_foggy_cityscapes_voc(root):
+    SPLITS = [
+        ("cityscape_2007_train_t", "cityscape/VOC2007", "train_t"),
+        ("cityscape_2007_test_t", "cityscape/VOC2007", "test_t"),
+    ]
+    for name, dirname, split in SPLITS:
+        year = 2007 if "2007" in name else 2012
+        register_cityscapes_voc(name, os.path.join(root, dirname), split, year)
+        MetadataCatalog.get(name).evaluator_type = "cityscapes_voc"
 
 # True for open source;
 # Internally at fb, we register them elsewhere
@@ -257,3 +279,5 @@ if __name__.endswith(".builtin"):
     register_all_cityscapes_panoptic(_root)
     register_all_pascal_voc(_root)
     register_all_ade20k(_root)
+    register_all_cityscapes_voc(_root)
+    register_all_foggy_cityscapes_voc(_root)

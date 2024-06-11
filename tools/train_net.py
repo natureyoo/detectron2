@@ -35,6 +35,7 @@ from detectron2.evaluation import (
     PascalVOCDetectionEvaluator,
     SemSegEvaluator,
     verify_results,
+    CityscapeDetectionEvaluator,
 )
 from detectron2.modeling import GeneralizedRCNNWithTTA
 
@@ -70,6 +71,8 @@ def build_evaluator(cfg, dataset_name, output_folder=None):
         return PascalVOCDetectionEvaluator(dataset_name)
     elif evaluator_type == "lvis":
         return LVISEvaluator(dataset_name, output_dir=output_folder)
+    elif evaluator_type == "cityscapes_voc":
+        return CityscapeDetectionEvaluator(dataset_name)
     if len(evaluator_list) == 0:
         raise NotImplementedError(
             "no Evaluator for the dataset {} with the type {}".format(dataset_name, evaluator_type)
